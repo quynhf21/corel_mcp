@@ -25,11 +25,19 @@ class Corel:
         doc = self.app.OpenDocument(str(cdr_path))
         try:
             doc.Unit = C.cdrMillimeter
-            bitmaps = doc.ActivePage.Shapes.FindShapes(None, C.cdrBitmapShape, True)
-            if bitmaps.Count == 0:
+            # FindShapes qua wrapper COM 2020 có thể trả rỗng dù có bitmap.
+            # Duyệt cả nhóm để không phụ thuộc bộ lọc tên/query tuỳ chọn.
+            pending = list(doc.ActivePage.Shapes)
+            bitmaps = []
+            while pending:
+                shape = pending.pop()
+                if shape.Type == C.cdrBitmapShape:
+                    bitmaps.append(shape)
+                elif shape.Type == C.cdrGroupShape:
+                    pending.extend(shape.Shapes)
+            if not bitmaps:
                 raise ValueError(f"{cdr_path.name}: không thấy ảnh bitmap nào")
-            shp = max((bitmaps.Item(i) for i in range(1, bitmaps.Count + 1)),
-                      key=lambda s: s.SizeWidth * s.SizeHeight)
+            shp = max(bitmaps, key=lambda s: s.SizeWidth * s.SizeHeight)
             bmp = shp.Bitmap
             dpi = round(bmp.SizeWidth / (shp.SizeWidth / 25.4))
             doc.ClearSelection()
@@ -38,6 +46,7 @@ class Corel:
                 str(png_path), C.cdrPNG, C.cdrSelection, C.cdrRGBColorImage,
                 bmp.SizeWidth, bmp.SizeHeight, dpi, dpi,
                 C.cdrNormalAntiAliasing, False, True,  # dithered=False, transparent=True
+                True, False, 0, None, None,  # các tuỳ chọn COM object phải là null
             )
             flt.Finish()
         finally:
@@ -50,7 +59,9 @@ class Corel:
         doc = self.app.CreateDocument()
         try:
             self._place(doc, sticker_pngs, lay)
-            doc.SaveAs(str(out_cdr))
+            # Wrapper Corel 2020 dùng 0 cho tham số COM object tuỳ chọn;
+            # pywin32 cần None (null IDispatch), không nhận số nguyên 0.
+            doc.SaveAs(str(out_cdr), None)
             if out_pdf is not None:
                 doc.PublishToPDF(str(out_pdf))
         finally:
@@ -72,11 +83,13 @@ class Corel:
 
             layer = doc.ActiveLayer
             for p in lay.placements:
-                layer.Import(str(sticker_pngs[p.index]))
+                layer.Import(str(sticker_pngs[p.index]), C.cdrPNG, None)
                 shp = doc.ActiveShape
                 shp.Name = f"sticker_{p.index + 1:02d}"
                 cx, cy = to_corel(p.cx, p.cy)
                 shp.SetSizeEx(cx, cy, p.w, p.h)
+                # SetSizeEx chỉ đổi kích thước quanh điểm neo, không đặt tâm hình.
+                shp.SetPositionEx(C.cdrCenter, cx, cy)
                 if p.angle:
                     # Rotate xoay quanh tâm hình, độ dương = ngược kim đồng hồ (như Pillow)
                     shp.Rotate(p.angle)

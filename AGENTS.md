@@ -44,7 +44,8 @@ py -3 -m venv .venv
 - Không bao giờ ghi đè hay sửa file gốc; đầu ra luôn ở thư mục khác (`batch.py` đã chặn).
 - Luôn thử với `--limit` nhỏ (1 → 10 file) và cho user xem file kết quả trong Corel
   trước khi chạy cả vài trăm file.
-- `corel_build.py` **chưa được chạy thử trên Corel thật** (viết trên Linux). Nếu lỗi COM:
+- `corel_build.py` đã chạy thử dựng A4 trên CorelDRAW 2020/Windows với 25 PNG,
+  lưu CDR/PDF và kiểm tra tâm hình (sai số tối đa 0,0001 mm). Nếu lỗi COM:
   - Đọc thông báo lỗi, tra tên method/tham số trong type library
     (`win32com.client.gencache.EnsureDispatch` sinh wrapper trong `%TEMP%\gen_py`).
   - Chỗ dễ sai nhất: `ExportBitmap` (thứ tự tham số), `Page.LeftX/TopY`,
@@ -59,7 +60,8 @@ py -3 -m venv .venv
   chạy song song (`--workers`, mặc định số nhân − 1). Máy user: Intel Core Ultra 7 155H
   (16 nhân / 22 luồng), chạy qua đêm được.
 - Đổi tham số khác: `NestConfig` và `QUALITY` trong `nest.py`.
-- Corel: hình được import ở chiều gốc, `SetSizeEx` theo tâm rồi `Rotate(angle)`
+- Corel: hình được import ở chiều gốc, `SetSizeEx` để đổi kích thước,
+  `SetPositionEx(cdrCenter, cx, cy)` để đặt tâm, rồi `Rotate(angle)`
   (độ dương = ngược kim đồng hồ, giống Pillow). Nếu trên Corel thấy hình xoay ngược
   chiều so với preview thì đổi dấu góc ở `corel_build.py`.
 - Repo của user `quynhf21/corel_mcp`: xong việc thì commit và push thẳng `main`.

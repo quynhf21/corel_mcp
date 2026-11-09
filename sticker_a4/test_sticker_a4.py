@@ -96,9 +96,37 @@ def _fake_win32com():
     win32com = types.ModuleType("win32com")
     client = types.ModuleType("win32com.client")
     client.gencache = types.SimpleNamespace(EnsureDispatch=mock.MagicMock())
-    client.constants = types.SimpleNamespace(cdrMillimeter=3)
+    client.constants = types.SimpleNamespace(
+        cdrMillimeter=3, cdrPNG=802, cdrBitmapShape=5, cdrGroupShape=7,
+        cdrSelection=2, cdrRGBColorImage=4, cdrNormalAntiAliasing=1,
+    )
     win32com.client = client
     return {"win32com": win32com, "win32com.client": client}
+
+
+def test_export_finds_largest_bitmap_inside_group(tmp_path: Path):
+    with mock.patch.dict(sys.modules, _fake_win32com()):
+        sys.modules.pop("corel_build", None)
+        import corel_build
+
+        corel = corel_build.Corel()
+        doc = mock.MagicMock()
+        small = mock.MagicMock(Type=5, SizeWidth=10.0, SizeHeight=10.0)
+        large = mock.MagicMock(Type=5, SizeWidth=100.0, SizeHeight=100.0)
+        large.Bitmap.SizeWidth = large.Bitmap.SizeHeight = 1000
+        group = mock.MagicMock(Type=7, Shapes=[large])
+        doc.ActivePage.Shapes = [small, group]
+        corel.app.OpenDocument.return_value = doc
+
+        corel.export_sheet_png(tmp_path / "in.cdr", tmp_path / "out.png")
+
+        large.CreateSelection.assert_called_once()
+        small.CreateSelection.assert_not_called()
+        assert doc.ExportBitmap.call_args.args[4:6] == (1000, 1000)
+        assert doc.ExportBitmap.call_args.args[-2:] == (None, None)
+        doc.ExportBitmap.return_value.Finish.assert_called_once()
+        doc.Close.assert_called_once()
+    sys.modules.pop("corel_build", None)
 
 
 def test_build_page_closes_doc_when_import_fails(tmp_path: Path):
@@ -117,6 +145,7 @@ def test_build_page_closes_doc_when_import_fails(tmp_path: Path):
         with pytest.raises(RuntimeError):
             corel.build_page([tmp_path / f"{i}.png" for i in range(25)], lay, tmp_path / "o.cdr")
         doc.Close.assert_called_once()
+        assert doc.ActiveLayer.Import.call_args.args[1:] == (802, None)
         doc.SaveAs.assert_not_called()
         assert corel.app.Optimization is False
     sys.modules.pop("corel_build", None)
