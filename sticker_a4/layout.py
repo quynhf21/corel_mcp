@@ -73,6 +73,9 @@ class Layout:
     score: float
     warnings: list[str] = field(default_factory=list)
     min_gap: float | None = None  # khoảng cách nhỏ nhất đo được giữa hai hình (mm)
+    # đường cắt (contour.py): index sticker -> các đa giác kín (mm, toạ độ trang); None = không cắt
+    cuts: dict[int, list] | None = None
+    marks: list[list[tuple[float, float]]] | None = None  # 4 dấu L
 
 
 def _compositions(n: int, rows: int, lo: int = 2, hi: int = 7):

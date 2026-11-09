@@ -9,6 +9,7 @@ from pathlib import Path
 import win32com.client
 from win32com.client import constants as C
 
+from contour import CutConfig
 from layout import PAGE_H, PAGE_W, Layout
 
 PROG_ID = "CorelDRAW.Application.22"  # 22 = CorelDRAW 2020
@@ -67,6 +68,34 @@ class Corel:
         finally:
             doc.Close()
 
+    def _polyline(self, doc, layer, polys, closed: bool, to_corel):
+        """Một đối tượng curve gồm nhiều đường gấp khúc (subpath)."""
+        crv = self.app.CreateCurve(doc)
+        for poly in polys:
+            sp = crv.CreateSubPath(*to_corel(float(poly[0][0]), float(poly[0][1])))
+            for x, y in poly[1:]:
+                sp.AppendLineSegment(*to_corel(float(x), float(y)))
+            sp.Closed = closed
+        shp = layer.CreateCurve(crv)
+        shp.Fill.ApplyNoFill()
+        return shp
+
+    def _draw_cuts(self, doc, image_layer, lay: Layout, to_corel, cut: CutConfig) -> None:
+        """Dấu L trên layer ảnh, contour trên TraceLayer — giống cách AidCut tạo."""
+        if lay.marks:
+            m = self._polyline(doc, image_layer, lay.marks, False, to_corel)
+            m.Name = cut.mark_name
+            m.Outline.Width = cut.mark_width
+            m.Outline.Color.CMYKAssign(0, 0, 0, 100)
+        if lay.cuts:
+            trace = doc.ActivePage.CreateLayer(cut.trace_layer)
+            for i in sorted(lay.cuts):
+                t = self._polyline(doc, trace, lay.cuts[i], True, to_corel)
+                t.Name = cut.trace_name
+                t.Outline.Width = cut.line_width_pt * 25.4 / 72  # pt -> mm
+                t.Outline.Color.RGBAssign(*cut.line_rgb)
+            image_layer.Activate()
+
     def _place(self, doc, sticker_pngs: list[Path], lay: Layout) -> None:
         self.app.Optimization = True
         try:
@@ -93,6 +122,7 @@ class Corel:
                 if p.angle:
                     # Rotate xoay quanh tâm hình, độ dương = ngược kim đồng hồ (như Pillow)
                     shp.Rotate(p.angle)
+            self._draw_cuts(doc, layer, lay, to_corel, CutConfig())
             # đường gióng (không in) tại vị trí cắt đôi tờ
             x0, y = to_corel(0, lay.cut_y)
             x1, _ = to_corel(PAGE_W, lay.cut_y)

@@ -98,7 +98,7 @@ def _fake_win32com():
     client.gencache = types.SimpleNamespace(EnsureDispatch=mock.MagicMock())
     client.constants = types.SimpleNamespace(
         cdrMillimeter=3, cdrPNG=802, cdrBitmapShape=5, cdrGroupShape=7,
-        cdrSelection=2, cdrRGBColorImage=4, cdrNormalAntiAliasing=1,
+        cdrSelection=2, cdrRGBColorImage=4, cdrNormalAntiAliasing=1, cdrCenter=9,
     )
     win32com.client = client
     return {"win32com": win32com, "win32com.client": client}
@@ -148,4 +148,106 @@ def test_build_page_closes_doc_when_import_fails(tmp_path: Path):
         assert doc.ActiveLayer.Import.call_args.args[1:] == (802, None)
         doc.SaveAs.assert_not_called()
         assert corel.app.Optimization is False
+    sys.modules.pop("corel_build", None)
+
+
+def _edge_distance(poly, mask, mm_per_px):
+    """Khoảng cách (mm) từ các điểm contour tới mép vùng `mask` (dương = ở ngoài)."""
+    import numpy as np
+    from scipy import ndimage
+
+    out = ndimage.distance_transform_edt(~mask) * mm_per_px
+    inside = ndimage.distance_transform_edt(mask) * mm_per_px
+    d = []
+    for x, y in poly:
+        i, j = int(round(y)), int(round(x))
+        if 0 <= i < mask.shape[0] and 0 <= j < mask.shape[1]:
+            d.append(out[i, j] if not mask[i, j] else -inside[i, j])
+    return np.array(d)
+
+
+def test_contour_offset_matches_config():
+    """Contour nằm ngoài mép hình đúng khoảng `offset` (như file mẫu AidCut ~0,4 mm)."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from contour import CutConfig, sticker_outline
+
+    im = Image.new("RGBA", (300, 200), (0, 0, 0, 0))
+    ImageDraw.Draw(im).ellipse([40, 30, 260, 170], fill=(255, 255, 255, 255))
+    mm_per_px = 0.15
+    polys = sticker_outline(im, mm_per_px, CutConfig(offset=0.4))
+    assert len(polys) == 1
+    # đo trên lưới phóng 4 lần cho chính xác
+    big = np.asarray(im.getchannel("A").resize((1200, 800), Image.NEAREST)) > 16
+    d = _edge_distance(polys[0] * 4, big, mm_per_px / 4)
+    assert np.median(d) == pytest.approx(0.4, abs=0.06)
+    assert d.min() > 0.25
+
+
+def test_placed_contour_follows_rotated_image():
+    """Contour đặt lên trang phải khớp với ảnh được xoay/đặt như preview (Pillow)."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from contour import CutConfig, page_outlines
+    from layout import Layout, Placement
+    from preview import render
+
+    im = Image.new("RGBA", (200, 120), (0, 0, 0, 0))  # hình chữ L: không đối xứng
+    dr = ImageDraw.Draw(im)
+    dr.rectangle([10, 10, 190, 50], fill=(255, 0, 0, 255))
+    dr.rectangle([10, 10, 60, 110], fill=(255, 0, 0, 255))
+    cfg = Config()
+    medians = {}
+    for angle in (0.0, 37.0, -90.0, 200.0):
+        p = Placement(0, 100.0, 120.0, 40.0, 24.0, angle)
+        lay = Layout([p], ((), ()), 153.0, 0.0)
+        cut = page_outlines([im], [p], CutConfig(offset=0.4))[0][0]
+        dpi = 400
+        page = render([im], lay, cfg, dpi=dpi)
+        rgb = np.asarray(page).astype(int)
+        mask = (rgb[:, :, 0] > 200) & (rgb[:, :, 1] < 80)  # pixel đỏ của hình
+        k = dpi / 25.4
+        d = _edge_distance(cut * k, mask, 1 / k)
+        # mép ảnh preview bị làm mờ khi thu nhỏ nên đo được hơi lớn hơn 0,4 mm;
+        # điều cần kiểm là mọi góc xoay cho cùng kết quả như góc 0 và không điểm nào lọt vào hình
+        medians[angle] = float(np.median(d))
+        assert d.min() > 0.1, angle
+        assert np.percentile(d, 95) < 0.9, angle
+    for angle, m in medians.items():
+        assert m == pytest.approx(medians[0.0], abs=0.08), (angle, medians)
+
+
+def test_draw_cuts_mimics_aidcut(tmp_path: Path):
+    """Dấu L trên layer ảnh tên LMarkLine1; mỗi hình một TraceLine trên TraceLayer."""
+    import numpy as np
+
+    from contour import CutConfig, lmarks
+
+    with mock.patch.dict(sys.modules, _fake_win32com()):
+        sys.modules.pop("corel_build", None)
+        import corel_build
+
+        corel = corel_build.Corel()
+        doc = mock.MagicMock()
+        image_layer = mock.MagicMock()
+        trace = doc.ActivePage.CreateLayer.return_value
+        from layout import Layout
+        lay = Layout([], ((), ()), 153.0, 0.0)
+        sq = np.array([[0, 0], [1, 0], [1, 1]], float)
+        lay.cuts = {0: [sq], 1: [sq, sq + 5]}
+        lay.marks = lmarks(CutConfig())
+        corel._draw_cuts(doc, image_layer, lay, lambda x, y: (x, y), CutConfig())
+
+        doc.ActivePage.CreateLayer.assert_called_once_with("TraceLayer")
+        assert image_layer.CreateCurve.call_count == 1
+        assert trace.CreateCurve.call_count == 2
+        assert image_layer.CreateCurve.return_value.Name == "LMarkLine1"
+        assert trace.CreateCurve.return_value.Name == "TraceLine"
+        assert trace.CreateCurve.return_value.Outline.Width == pytest.approx(0.5 * 25.4 / 72)
+        crv = corel.app.CreateCurve.return_value
+        # 4 dấu L + 1 + 2 đường kín
+        assert crv.CreateSubPath.call_count == 4 + 3
+        image_layer.Activate.assert_called_once()
     sys.modules.pop("corel_build", None)
