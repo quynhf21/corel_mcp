@@ -54,9 +54,11 @@ py -3 -m venv .venv
   COM sẽ báo lỗi không kết nối được.
 - Sau khi đổi tham số bố cục, chạy lại `--dry-run` và xem `*_A4_preview.png`
   (khung xanh dương = khối, vạch đỏ = đường cắt đôi).
-- Xếp lồng mất ~1,5 phút/file/nhân CPU; bước bố cục chạy song song (`--workers`,
-  mặc định số nhân − 1). Muốn nhanh hơn (kém chặt hơn): giảm `restarts`, tăng
-  `angle_step` trong `NestConfig`.
+- Xếp lồng `--quality fast` (mặc định) mất ~1,5 phút/file/nhân CPU; `--quality high`
+  (góc 10°, tìm kiếm cục bộ) mất `--time-budget` giây/file (mặc định 300). Bước bố cục
+  chạy song song (`--workers`, mặc định số nhân − 1). Máy user: Intel Core Ultra 7 155H
+  (16 nhân / 22 luồng), chạy qua đêm được.
+- Đổi tham số khác: `NestConfig` và `QUALITY` trong `nest.py`.
 - Corel: hình được import ở chiều gốc, `SetSizeEx` theo tâm rồi `Rotate(angle)`
   (độ dương = ngược kim đồng hồ, giống Pillow). Nếu trên Corel thấy hình xoay ngược
   chiều so với preview thì đổi dấu góc ở `corel_build.py`.

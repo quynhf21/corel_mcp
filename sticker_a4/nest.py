@@ -14,6 +14,7 @@ Cách làm (raster nesting):
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -38,6 +39,15 @@ class NestConfig(Config):
     grow: tuple[float, ...] = (1.1, 1.05)  # xếp xong, thử phóng to từng hình để lấp hốc
     restarts: int = 6          # số thứ tự đặt hình được thử (càng nhiều càng chặt, càng lâu)
     seed: int = 0
+    # --- chế độ chất lượng cao ---
+    time_budget: float = 0.0   # tổng số giây cho mỗi file; phần còn lại sau tìm nhị phân
+                               # dùng để tìm kiếm cục bộ (0 = tắt)
+
+
+QUALITY = {
+    "fast": {},
+    "high": {"time_budget": 300.0, "angle_step": 10.0},
+}
 
 
 def _disk(r: int) -> np.ndarray:
@@ -69,8 +79,9 @@ def _ring(occ: np.ndarray, width: int = 2) -> np.ndarray:
 class _Packer:
     """Trạng thái xếp ở một hệ số phóng: mỗi hình đã đặt = (khối, y, x, góc, hệ số, mặt nạ)."""
 
-    def __init__(self, alphas, scale, cfg: NestConfig, angles):
+    def __init__(self, alphas, scale, cfg: NestConfig, angles, cache):
         self.alphas, self.scale, self.cfg, self.angles = alphas, scale, cfg, angles
+        self.cache = cache  # (index, góc, scale) -> mặt nạ, dùng chung giữa các lần thử
         self.bw = int(cfg.block_w / RES)
         self.bh = int(cfg.block_h / RES)
         self.r = math.ceil(cfg.gap / RES)
@@ -99,8 +110,7 @@ class _Packer:
     def place(self, i, factors) -> bool:
         """Đặt hình i với hệ số đầu tiên trong `factors` còn tìm được chỗ."""
         for f in factors:
-            best = _best_spot(self.alphas[i], self.scale * f, self.angles,
-                              self.occ, self.ring, self.bh, self.bw)
+            best = self._best_spot(i, self.scale * f)
             if best is not None:
                 _, b, y, x, a, m = best
                 self.items[i] = (b, y, x, a, f, m)
@@ -108,6 +118,37 @@ class _Packer:
                 self.ring[b] = _ring(self.occ[b])
                 return True
         return False
+
+    def _mask(self, i, a, scale):
+        key = (i, a, scale)
+        m = self.cache.get(key)
+        if m is None:
+            if len(self.cache) > 50000:
+                self.cache.clear()
+            m = self.cache[key] = _mask(self.alphas[i], a, scale, RES)
+        return m
+
+    def _best_spot(self, i, scale):
+        """Vị trí tốt nhất cho hình i trên cả 2 khối, hoặc None nếu không còn chỗ."""
+        best = None
+        for a in self.angles:
+            m = self._mask(i, a, scale)
+            mh, mw = m.shape
+            if mh > self.bh or mw > self.bw:
+                continue
+            kern = m[::-1, ::-1].astype(np.float32)
+            for b in range(2):
+                hit = fftconvolve(self.occ[b], kern, mode="valid") > 0.5
+                if hit.all():
+                    continue
+                # ring có viền 1 ô -> vị trí (y, x) trong khối ứng với (y+1, x+1)
+                contact = fftconvolve(self.ring[b], kern, mode="valid")[1:-1, 1:-1]
+                contact[hit] = -1
+                y, x = np.unravel_index(int(np.argmax(contact)), contact.shape)
+                key = (-round(float(contact[y, x])), y + mh, x)
+                if best is None or key < best[0]:
+                    best = (key, b, y, x, a, m)
+        return best
 
     def grow(self, factors) -> None:
         """Lấp hốc: nhấc từng hình (nhỏ trước) ra, thử đặt lại to hơn; không được thì
@@ -128,51 +169,49 @@ class _Packer:
         return out
 
 
-def _try_pack(alphas, scale, cfg: NestConfig, angles, order):
-    """Thử xếp mọi sticker ở hệ số `scale` (mm/px). Trả về list placement hoặc None.
-    Placement: (index, khối, tâm x, tâm y, góc, hệ số to/nhỏ riêng của hình).
+def _try_pack(alphas, scale, cfg: NestConfig, angles, order, cache):
+    """Thử xếp mọi sticker theo thứ tự `order` ở hệ số `scale` (mm/px).
 
     Với mỗi sticker, xét mọi góc ở cả 2 khối; chọn vị trí trống mà hình áp sát nhiều
     nhất vào vật cản (hình khác/mép khối), hoà thì chọn vị trí cao hơn, trái hơn.
     """
-    pk = _Packer(alphas, scale, cfg, angles)
+    pk = _Packer(alphas, scale, cfg, angles, cache)
     for i in order:
         if not pk.place(i, cfg.shrink):
             return None
     return pk
 
 
-def _best_spot(alpha, scale, angles, occ, ring, bh, bw):
-    """Vị trí tốt nhất cho một sticker trên cả 2 khối, hoặc None nếu không còn chỗ."""
-    best = None
-    for a in angles:
-        m = _mask(alpha, a, scale, RES)
-        mh, mw = m.shape
-        if mh > bh or mw > bw:
-            continue
-        kern = m[::-1, ::-1].astype(np.float32)
-        for b in range(2):
-            hit = fftconvolve(occ[b], kern, mode="valid") > 0.5
-            if hit.all():
-                continue
-            # ring có viền 1 ô -> vị trí (y, x) trong khối ứng với (y+1, x+1)
-            contact = fftconvolve(ring[b], kern, mode="valid")[1:-1, 1:-1]
-            contact[hit] = -1
-            y, x = np.unravel_index(int(np.argmax(contact)), contact.shape)
-            key = (-round(float(contact[y, x])), y + mh, x)
-            if best is None or key < best[0]:
-                best = (key, b, y, x, a, m)
-    return best
+def _to_layout(pk: _Packer, sizes, cfg: NestConfig) -> Layout:
+    y0 = [cfg.top, cfg.top + cfg.block_h + cfg.cut_gap]
+    placements = []
+    for i, b, cx, cy, a, f in pk.result():
+        w, h = sizes[i][0] * pk.scale * f, sizes[i][1] * pk.scale * f
+        placements.append(Placement(i, cfg.left + cx, y0[b] + cy, w, h, a))
+    return Layout(placements, ((), ()), cfg.top + cfg.block_h + cfg.cut_gap / 2,
+                  sum(p.w * p.h for p in placements))
+
+
+def _mutate(order: list[int], rng) -> list[int]:
+    """Đổi chỗ 1–3 cặp hình trong thứ tự đặt."""
+    order = list(order)
+    for _ in range(int(rng.integers(1, 4))):
+        i, j = rng.choice(len(order), 2, replace=False)
+        order[i], order[j] = order[j], order[i]
+    return order
 
 
 def plan_nest(images: list[Image.Image], cfg: NestConfig | None = None,
               log=None) -> Layout:
     """images: ảnh RGBA từng sticker (đã cắt sát). Trả về Layout với góc xoay tuỳ ý."""
     cfg = cfg or NestConfig()
+    t_start = time.monotonic()
     alphas = _alphas(images)
     sizes = [im.size for im in images]
     long_px = float(np.median([max(s) for s in sizes]))
-    angles = [a * cfg.angle_step for a in range(int(round(360 / cfg.angle_step)))]
+    n_ang = int(round(360 / cfg.angle_step))
+    angles = [a * cfg.angle_step for a in range(n_ang)]
+    cache: dict = {}
 
     rng = np.random.default_rng(cfg.seed)
     area = [sizes[i][0] * sizes[i][1] for i in range(len(images))]
@@ -181,18 +220,21 @@ def plan_nest(images: list[Image.Image], cfg: NestConfig | None = None,
         noise = rng.uniform(0.75, 1.25, len(images))
         orders.append(sorted(range(len(images)), key=lambda i: -area[i] * noise[i]))
 
+    def pack(size_mm: float, order, angs=angles):
+        return _try_pack(alphas, size_mm / long_px, cfg, angs, order, cache)
+
     def attempt(size_mm: float):
         for order in orders:
-            res = _try_pack(alphas, size_mm / long_px, cfg, angles, order)
-            if res is not None:
-                return res
+            pk = pack(size_mm, order)
+            if pk is not None:
+                return pk, order
         return None
 
     lo, hi = cfg.min_size, cfg.max_size
-    best = attempt(lo)
-    if best is None:
+    res = attempt(lo)
+    if res is None:
         raise ValueError(f"Không xếp đủ {len(images)} hình kể cả khi cạnh dài = {lo} mm")
-    best_size = lo
+    (best, best_order), best_size = res, lo
     while hi - lo > cfg.search_step:
         mid = (lo + hi) / 2
         res = attempt(mid)
@@ -201,22 +243,32 @@ def plan_nest(images: list[Image.Image], cfg: NestConfig | None = None,
         if res is None:
             hi = mid
         else:
-            lo, best, best_size = mid, res, mid
-    scale = best_size / long_px
-    best.grow(cfg.grow)
-    best = best.result()
+            lo, (best, best_order), best_size = mid, res, mid
 
-    y0 = [cfg.top, cfg.top + cfg.block_h + cfg.cut_gap]
-    placements = []
-    for i, b, cx, cy, a, f in best:
-        w, h = sizes[i][0] * scale * f, sizes[i][1] * scale * f
-        placements.append(Placement(i, cfg.left + cx, y0[b] + cy, w, h, a))
-    lay = Layout(placements, ((), ()), cfg.top + cfg.block_h + cfg.cut_gap / 2,
-                 sum(p.w * p.h for p in placements))
-    for p in placements:
+    # Tìm kiếm cục bộ: thử kích thước lớn hơn một bậc với thứ tự đặt bị đổi chỗ vài hình
+    # và bộ góc lệch pha ngẫu nhiên (để phủ các góc nằm giữa hai bước).
+    if cfg.time_budget > 0:
+        deadline = t_start + cfg.time_budget
+        target, tries = best_size + cfg.search_step, 0
+        while time.monotonic() < deadline:
+            tries += 1
+            order = _mutate(best_order, rng)
+            phase = float(rng.choice([0.0, cfg.angle_step / 2, cfg.angle_step / 3]))
+            pk = pack(target, order, [a + phase for a in angles])
+            if pk is not None:
+                best, best_order, best_size = pk, order, target
+                if log:
+                    log(f"  tìm cục bộ: được {target:.1f} mm (lần thử {tries})")
+                target += cfg.search_step
+        if log:
+            log(f"  tìm cục bộ: {tries} lần thử trong {cfg.time_budget:.0f} s")
+
+    best.grow(cfg.grow)
+    lay = _to_layout(best, sizes, cfg)
+    gap = min_gap(images, lay)
+    for p in lay.placements:
         if max(p.w, p.h) < cfg.min_size:
             lay.warnings.append(f"sticker {p.index + 1}: {p.w:.1f}x{p.h:.1f} mm, nhỏ hơn {cfg.min_size} mm")
-    gap = min_gap(images, lay)
     if gap < cfg.gap - VERIFY_RES:
         lay.warnings.append(f"khoảng cách nhỏ nhất {gap:.2f} mm < {cfg.gap} mm")
     lay.min_gap = gap

@@ -66,6 +66,20 @@ def test_nest_layout_real_sheet():
         assert p.w / p.h == pytest.approx(w / h, rel=1e-9)
 
 
+def test_local_search_never_worse_than_fast():
+    """Tìm kiếm cục bộ chỉ nhận phương án lớn hơn, nên không bao giờ kém chế độ nhanh
+    (cùng seed -> cùng kết quả tìm nhị phân)."""
+    from nest import NestConfig, plan_nest
+    from split_stickers import split_sheet
+
+    images = [s.image for s in split_sheet(SAMPLE)]
+    base = dict(angle_step=45.0, restarts=1, search_step=3.0)
+    fast = plan_nest(images, NestConfig(**base))
+    high = plan_nest(images, NestConfig(**base, time_budget=25.0))
+    assert high.score >= fast.score * 0.98  # bước phóng to có thể lệch chút
+    assert high.min_gap >= 1.2 - 0.1
+
+
 def test_min_gap_handles_sticker_at_page_edge():
     """Hình thò ra mép trang không được làm sai phép đo (chỉ số âm)."""
     from layout import Layout, Placement

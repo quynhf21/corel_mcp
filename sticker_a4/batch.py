@@ -27,11 +27,11 @@ from split_stickers import split_sheet
 
 
 def layout_one(sheet: Path, work: Path, preview: Path, mode: str, allow_rotate: bool,
-               expected: int) -> list[str]:
+               expected: int, quality: str = "fast", time_budget: float | None = None) -> list[str]:
     """Bước 2 cho một file: tách, tính bố cục, lưu ảnh từng sticker + layout.pkl."""
     stickers = split_sheet(sheet, expected)
     images = [s.image for s in stickers]
-    lay, cfg = make_layout(images, mode, allow_rotate)
+    lay, cfg = make_layout(images, mode, allow_rotate, quality=quality, time_budget=time_budget)
     render(images, lay, cfg).save(preview)
     work.mkdir(parents=True, exist_ok=True)
     for s in stickers:
@@ -54,6 +54,9 @@ def main() -> None:
     ap.add_argument("--mode", choices=["nest", "grid"], default="nest",
                     help="nest = xếp lồng, xoay tuỳ ý (mặc định); grid = lưới thẳng hàng")
     ap.add_argument("--no-rotate", action="store_true", help="(chỉ mode grid) không xoay 90°")
+    ap.add_argument("--quality", choices=["fast", "high"], default="fast",
+                    help="high = tìm kiếm cục bộ thêm, chặt hơn nhưng ~5 phút/file (chạy qua đêm)")
+    ap.add_argument("--time-budget", type=float, help="giây tối đa cho mỗi file khi --quality high")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1),
                     help="số file tính bố cục cùng lúc")
     a = ap.parse_args()
@@ -99,7 +102,7 @@ def main() -> None:
     with ProcessPoolExecutor(max_workers=a.workers) as pool:
         jobs = {pool.submit(layout_one, sheet, work_root / src.stem,
                             a.out_dir / f"{src.stem}_A4_preview.png",
-                            a.mode, not a.no_rotate, a.expected): src
+                            a.mode, not a.no_rotate, a.expected, a.quality, a.time_budget): src
                 for src, sheet in sheets.items()}
         for n, fut in enumerate(as_completed(jobs), 1):
             src = jobs[fut]

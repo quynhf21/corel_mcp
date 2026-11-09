@@ -11,7 +11,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from layout import PAGE_H, PAGE_W, Config, Layout, plan
-from nest import NestConfig, plan_nest
+from nest import QUALITY, NestConfig, plan_nest
 from split_stickers import split_sheet
 
 
@@ -31,11 +31,15 @@ def render(stickers: list[Image.Image], lay: Layout, cfg: Config, dpi: int = 150
     return page
 
 
-def make_layout(images: list[Image.Image], mode: str, allow_rotate: bool = True, log=None):
+def make_layout(images: list[Image.Image], mode: str, allow_rotate: bool = True, log=None,
+                quality: str = "fast", time_budget: float | None = None):
     if mode == "grid":
         cfg = Config(allow_rotate=allow_rotate)
         return plan([im.size for im in images], cfg), cfg
-    cfg = NestConfig()
+    opts = dict(QUALITY[quality])
+    if time_budget is not None:
+        opts["time_budget"] = time_budget
+    cfg = NestConfig(**opts)
     return plan_nest(images, cfg, log=log), cfg
 
 
@@ -44,10 +48,12 @@ def main() -> None:
     ap.add_argument("png", type=Path)
     ap.add_argument("out", type=Path)
     ap.add_argument("--mode", choices=["nest", "grid"], default="nest")
+    ap.add_argument("--quality", choices=list(QUALITY), default="fast")
+    ap.add_argument("--time-budget", type=float, help="giây cho mỗi file (chế độ high)")
     a = ap.parse_args()
     st = split_sheet(a.png)
     images = [s.image for s in st]
-    lay, cfg = make_layout(images, a.mode, log=print)
+    lay, cfg = make_layout(images, a.mode, log=print, quality=a.quality, time_budget=a.time_budget)
     render(images, lay, cfg).save(a.out)
     for p in lay.placements:
         print(f"  #{p.index + 1:2d} {p.w:5.1f} x {p.h:5.1f} mm, xoay {p.angle:g}°")
