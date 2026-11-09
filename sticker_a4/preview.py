@@ -1,6 +1,7 @@
 """Vẽ thử trang A4 ra PNG (không cần Corel) để kiểm tra bố cục.
 
-python preview.py anh_goc_1.png preview.png
+python preview.py anh_goc_1.png preview.png            # xếp lồng, xoay tuỳ ý (mặc định)
+python preview.py anh_goc_1.png preview.png --mode grid
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from layout import PAGE_H, PAGE_W, Config, Layout, plan
+from nest import NestConfig, plan_nest
 from split_stickers import split_sheet
 
 
@@ -22,28 +24,35 @@ def render(stickers: list[Image.Image], lay: Layout, cfg: Config, dpi: int = 150
         d.rectangle([cfg.left * k, y0 * k, cfg.right * k, (y0 + cfg.block_h) * k], outline="#3b82f6")
     d.line([0, lay.cut_y * k, page.width, lay.cut_y * k], fill="#ef4444", width=2)
     for p in lay.placements:
-        im = stickers[p.index]
-        if p.rotated:
-            im = im.rotate(-90, expand=True)
-        im = im.resize((round(p.w * k), round(p.h * k)), Image.LANCZOS)
-        page.paste(im, (round(p.x * k), round(p.y * k)), im)
-        d.rectangle([p.x * k, p.y * k, (p.x + p.w) * k, (p.y + p.h) * k], outline="#10b981")
+        im = stickers[p.index].resize((round(p.w * k), round(p.h * k)), Image.LANCZOS)
+        if p.angle:
+            im = im.rotate(p.angle, resample=Image.BICUBIC, expand=True)
+        page.paste(im, (round(p.cx * k - im.width / 2), round(p.cy * k - im.height / 2)), im)
     return page
 
 
+def make_layout(images: list[Image.Image], mode: str, allow_rotate: bool = True, log=None):
+    if mode == "grid":
+        cfg = Config(allow_rotate=allow_rotate)
+        return plan([im.size for im in images], cfg), cfg
+    cfg = NestConfig()
+    return plan_nest(images, cfg, log=log), cfg
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("png", type=Path)
     ap.add_argument("out", type=Path)
-    ap.add_argument("--no-rotate", action="store_true")
+    ap.add_argument("--mode", choices=["nest", "grid"], default="nest")
     a = ap.parse_args()
-    cfg = Config(allow_rotate=not a.no_rotate)
     st = split_sheet(a.png)
-    lay = plan([s.image.size for s in st], cfg)
-    render([s.image for s in st], lay, cfg).save(a.out)
-    print("hàng:", lay.rows, "| đường cắt y =", round(lay.cut_y, 1), "mm")
+    images = [s.image for s in st]
+    lay, cfg = make_layout(images, a.mode, log=print)
+    render(images, lay, cfg).save(a.out)
     for p in lay.placements:
-        print(f"  #{p.index + 1:2d} {p.w:5.1f} x {p.h:5.1f} mm{'  (xoay)' if p.rotated else ''}")
+        print(f"  #{p.index + 1:2d} {p.w:5.1f} x {p.h:5.1f} mm, xoay {p.angle:g}°")
+    if lay.min_gap is not None:
+        print(f"khoảng cách nhỏ nhất giữa 2 hình: {lay.min_gap:.2f} mm")
     for w in lay.warnings:
         print("CẢNH BÁO:", w)
 

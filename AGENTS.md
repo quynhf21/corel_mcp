@@ -9,10 +9,11 @@ trên 1 layer trong file .cdr) sang **1 trang A4** để in và cắt trên máy
 Yêu cầu bố cục (đã chốt với user):
 - Cả 25 hình nằm trên 1 trang A4 (210×297 mm), máy in in tràn viền.
 - Trang chia **2 khối trên/dưới**; tờ được cắt đôi ở giữa để mỗi nửa bỏ vừa túi
-  12 × 17,1 cm. Mỗi khối khoảng 160 × 117,8 mm, cách nhau 3,5 mm.
-- Các hình cách nhau ≥ 1,5 mm, thẳng hàng, thẳng cột (lưới).
-- Được thu/phóng; cạnh dài mỗi hình ≥ 30 mm; kích thước các hình được chênh nhau
-  một ít; càng lấp đầy giấy càng tốt. Được xoay 90° nếu hình to hơn hẳn.
+  12 × 17,1 cm. Mỗi khối 166 × 117,8 mm (x 22–188, y 34–273), cách nhau 3,5 mm.
+- **Xếp lồng theo đúng đường viền hình** (không cần ô vuông, không cần thẳng hàng),
+  xoay góc tuỳ ý; mép hai hình cách nhau ≥ 1,2 mm. Càng lấp đầy càng tốt.
+- Được thu/phóng; cạnh dài mỗi hình ≥ 30 mm; các hình được chênh nhau khoảng ±10%.
+- Chế độ cũ `--mode grid` (lưới thẳng hàng thẳng cột, cách 1,5 mm) vẫn giữ để so sánh.
 - Vùng đặt hình né 4 dấu L (registration mark) của máy cắt; số đo lấy từ file mẫu
   `ST16.cdr` (do user dàn tay). Dấu L và đường cắt contour do plugin cắt của user
   tạo sau, script **không** vẽ chúng.
@@ -21,10 +22,12 @@ Yêu cầu bố cục (đã chốt với user):
 | File | Việc |
 |---|---|
 | `split_stickers.py` | Tách tấm PNG thành 25 sticker theo kênh alpha, gộp mảnh rời (tim, giọt nước). |
-| `layout.py` | Tính lưới tối ưu (thuần Python, không cần Corel). Tham số trong `Config`. |
+| `nest.py` | Xếp lồng theo mặt nạ alpha, xoay tuỳ ý (mặc định). Tham số trong `NestConfig`. |
+| `layout.py` | `Config` (vùng đặt, khoảng cách), `Placement` (tâm, kích thước chưa xoay, góc), chế độ lưới. |
 | `preview.py` | Vẽ trang A4 ra PNG để kiểm tra bố cục. |
 | `corel_build.py` | COM tới `CorelDRAW.Application.22`: xuất bitmap từ .cdr, dựng trang A4, lưu .cdr/.pdf. |
-| `batch.py` | Chạy cả thư mục, có `--limit`, `--dry-run`, `--pdf`, `--overwrite`, ghi `log.csv`. |
+| `batch.py` | Chạy cả thư mục: `--limit`, `--dry-run`, `--pdf`, `--overwrite`, `--mode`, `--workers`, ghi `log.csv`. |
+| `test_sticker_a4.py` | `pytest test_sticker_a4.py` (không cần Corel). |
 
 ## Cách chạy (Windows 11, Python 64-bit)
 ```powershell
@@ -50,4 +53,11 @@ py -3 -m venv .venv
 - Nếu Corel phải chạy với quyền Admin thì Python cũng phải chạy cùng quyền, nếu không
   COM sẽ báo lỗi không kết nối được.
 - Sau khi đổi tham số bố cục, chạy lại `--dry-run` và xem `*_A4_preview.png`
-  (khung xanh lá = hình, khung xanh dương = khối, vạch đỏ = đường cắt đôi).
+  (khung xanh dương = khối, vạch đỏ = đường cắt đôi).
+- Xếp lồng mất ~1,5 phút/file/nhân CPU; bước bố cục chạy song song (`--workers`,
+  mặc định số nhân − 1). Muốn nhanh hơn (kém chặt hơn): giảm `restarts`, tăng
+  `angle_step` trong `NestConfig`.
+- Corel: hình được import ở chiều gốc, `SetSizeEx` theo tâm rồi `Rotate(angle)`
+  (độ dương = ngược kim đồng hồ, giống Pillow). Nếu trên Corel thấy hình xoay ngược
+  chiều so với preview thì đổi dấu góc ở `corel_build.py`.
+- Repo của user `quynhf21/corel_mcp`: xong việc thì commit và push thẳng `main`.

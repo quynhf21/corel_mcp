@@ -8,6 +8,7 @@ nên các sticker cùng hàng thẳng hàng, các hàng cùng số cột thẳng
 from __future__ import annotations
 
 import itertools
+import math
 from dataclasses import dataclass, field
 
 PAGE_W, PAGE_H = 210.0, 297.0
@@ -15,9 +16,10 @@ PAGE_W, PAGE_H = 210.0, 297.0
 
 @dataclass
 class Config:
-    # Vùng đặt sticker (mặc định đo từ file mẫu ST16.cdr, né 4 dấu L của máy cắt).
-    left: float = 25.0
-    right: float = 185.0
+    # Vùng đặt sticker: dọc đo từ file mẫu ST16.cdr (né 4 dấu L của máy cắt); ngang
+    # rộng 166 mm để mỗi nửa tờ vẫn bỏ vừa túi 12 x 17,1 cm.
+    left: float = 22.0
+    right: float = 188.0
     top: float = 34.0
     bottom: float = 273.0
     cut_gap: float = 3.5      # khoảng trống giữa 2 khối, đường cắt đôi tờ nằm giữa
@@ -48,11 +50,19 @@ class Cell:
 @dataclass
 class Placement:
     index: int        # chỉ số sticker trong danh sách đầu vào
-    x: float          # góc trên-trái
-    y: float
-    w: float
+    cx: float         # tâm hình trên trang
+    cy: float
+    w: float          # kích thước hình khi CHƯA xoay
     h: float
-    rotated: bool     # đã xoay 90° theo chiều kim đồng hồ
+    angle: float = 0.0  # góc xoay (độ, dương = ngược kim đồng hồ), quanh tâm
+
+    @property
+    def bbox(self) -> tuple[float, float, float, float]:
+        """Hộp bao (x0, y0, x1, y1) sau khi xoay."""
+        a = math.radians(self.angle)
+        bw = abs(self.w * math.cos(a)) + abs(self.h * math.sin(a))
+        bh = abs(self.w * math.sin(a)) + abs(self.h * math.cos(a))
+        return self.cx - bw / 2, self.cy - bh / 2, self.cx + bw / 2, self.cy + bh / 2
 
 
 @dataclass
@@ -62,6 +72,7 @@ class Layout:
     cut_y: float
     score: float
     warnings: list[str] = field(default_factory=list)
+    min_gap: float | None = None  # khoảng cách nhỏ nhất đo được giữa hai hình (mm)
 
 
 def _compositions(n: int, rows: int, lo: int = 2, hi: int = 7):
@@ -107,12 +118,10 @@ def _evaluate(cfg: Config, sizes: list[tuple[float, float]], cells: list[Cell]):
     for i, j in pairs:
         k, rot = fits[i]
         k = min(k, cap)
-        w, h = sizes[i]
-        if rot:
-            w, h = h, w
-        w, h = w * k, h * k
+        w, h = sizes[i][0] * k, sizes[i][1] * k
         c = cells[j]
-        placements.append(Placement(i, c.x + (c.w - w) / 2, c.y + (c.h - h) / 2, w, h, rot))
+        # xoay 90° theo chiều kim đồng hồ = -90° theo quy ước ngược kim đồng hồ
+        placements.append(Placement(i, c.x + c.w / 2, c.y + c.h / 2, w, h, -90.0 if rot else 0.0))
         area += w * h
     return area, placements
 
@@ -143,5 +152,5 @@ def plan(sizes_px: list[tuple[int, int]], cfg: Config | None = None) -> Layout:
         if max(p.w, p.h) < cfg.min_size:
             best.warnings.append(
                 f"sticker {p.index + 1}: {p.w:.1f}x{p.h:.1f} mm, nhỏ hơn {cfg.min_size} mm")
-    best.placements.sort(key=lambda p: (p.y, p.x))
+    best.placements.sort(key=lambda p: (p.cy, p.cx))
     return best

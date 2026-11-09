@@ -11,6 +11,8 @@ import pytest
 
 from layout import Config, plan
 
+SAMPLE = Path(__file__).resolve().parent.parent / "anh_goc_1.png"
+
 # kích thước (px) đo từ anh_goc_1.png: có hình dọc, hình vuông, hình dẹt
 SIZES = [(275, 262), (274, 257), (216, 275), (172, 274), (204, 274), (225, 274), (275, 175),
          (204, 275), (217, 274), (201, 275), (194, 274), (186, 276), (252, 264), (273, 261),
@@ -18,30 +20,62 @@ SIZES = [(275, 262), (274, 257), (216, 275), (172, 274), (204, 274), (225, 274),
          (218, 274), (260, 274), (279, 140), (250, 273)]
 
 
-def test_layout_fits_region_with_gap():
-    cfg = Config()
-    lay = plan(SIZES, cfg)
-    assert sorted(p.index for p in lay.placements) == list(range(len(SIZES)))
+def _check_layout(lay, cfg, min_gap):
     eps = 1e-6
+    assert sorted(p.index for p in lay.placements) == list(range(len(lay.placements)))
     for p in lay.placements:
-        assert cfg.left - eps <= p.x and p.x + p.w <= cfg.right + eps
-        assert cfg.top - eps <= p.y and p.y + p.h <= cfg.bottom + eps
+        x0, y0, x1, y1 = p.bbox
+        assert cfg.left - eps <= x0 and x1 <= cfg.right + eps
+        assert cfg.top - eps <= y0 and y1 <= cfg.bottom + eps
         # không hình nào vắt qua đường cắt đôi
-        assert p.y + p.h <= lay.cut_y - cfg.cut_gap / 2 + eps or p.y >= lay.cut_y + cfg.cut_gap / 2 - eps
+        assert y1 <= lay.cut_y - cfg.cut_gap / 2 + eps or y0 >= lay.cut_y + cfg.cut_gap / 2 - eps
         assert max(p.w, p.h) >= cfg.min_size
-    for a, b in itertools.combinations(lay.placements, 2):
-        dx = max(b.x - (a.x + a.w), a.x - (b.x + b.w))
-        dy = max(b.y - (a.y + a.h), a.y - (b.y + b.h))
-        assert max(dx, dy) >= cfg.gap - eps, (a, b)
+    if min_gap:  # lưới: khoảng cách giữa các hộp bao
+        for a, b in itertools.combinations(lay.placements, 2):
+            ax0, ay0, ax1, ay1 = a.bbox
+            bx0, by0, bx1, by1 = b.bbox
+            assert max(bx0 - ax1, ax0 - bx1, by0 - ay1, ay0 - by1) >= cfg.gap - eps, (a, b)
 
 
-def test_aspect_ratio_preserved():
-    lay = plan(SIZES, Config())
-    for p in lay.placements:
+def test_grid_layout_fits_region_with_gap():
+    cfg = Config()
+    _check_layout(plan(SIZES, cfg), cfg, min_gap=True)
+
+
+def test_grid_aspect_ratio_preserved():
+    for p in plan(SIZES, Config()).placements:
         w, h = SIZES[p.index]
-        if p.rotated:
-            w, h = h, w
         assert p.w / p.h == pytest.approx(w / h, rel=1e-9)
+        assert p.angle in (0.0, -90.0)
+
+
+def test_nest_layout_real_sheet():
+    """Xếp lồng tấm mẫu thật (cấu hình rút gọn cho nhanh): đủ 25 hình, trong khối,
+    khoảng cách mép hình thật >= gap."""
+    from nest import VERIFY_RES, NestConfig, plan_nest
+    from split_stickers import split_sheet
+
+    images = [s.image for s in split_sheet(SAMPLE)]
+    cfg = NestConfig(angle_step=45.0, restarts=1, search_step=3.0)
+    lay = plan_nest(images, cfg)
+    _check_layout(lay, cfg, min_gap=False)
+    assert lay.min_gap >= cfg.gap - VERIFY_RES
+    assert not lay.warnings
+    for p in lay.placements:  # giữ tỉ lệ khung gốc
+        w, h = images[p.index].size
+        assert p.w / p.h == pytest.approx(w / h, rel=1e-9)
+
+
+def test_min_gap_handles_sticker_at_page_edge():
+    """Hình thò ra mép trang không được làm sai phép đo (chỉ số âm)."""
+    from layout import Layout, Placement
+    from nest import min_gap
+    from PIL import Image
+
+    im = Image.new("RGBA", (100, 100), (255, 0, 0, 255))
+    lay = Layout([Placement(0, 2.0, 2.0, 10.0, 10.0), Placement(1, 15.0, 2.0, 10.0, 10.0)],
+                 ((), ()), 150.0, 0.0)
+    assert min_gap([im, im], lay) == pytest.approx(3.0, abs=0.15)
 
 
 def _fake_win32com():

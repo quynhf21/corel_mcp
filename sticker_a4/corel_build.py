@@ -46,7 +46,7 @@ class Corel:
     # ---- dựng trang A4 ----
     def build_page(self, sticker_pngs: list[Path], lay: Layout, out_cdr: Path,
                    out_pdf: Path | None = None) -> None:
-        """sticker_pngs[i] là ảnh đã xoay sẵn đúng chiều của placement có index i."""
+        """sticker_pngs[i] là ảnh (chưa xoay) của sticker có index i."""
         doc = self.app.CreateDocument()
         try:
             self._place(doc, sticker_pngs, lay)
@@ -75,8 +75,11 @@ class Corel:
                 layer.Import(str(sticker_pngs[p.index]))
                 shp = doc.ActiveShape
                 shp.Name = f"sticker_{p.index + 1:02d}"
-                cx, cy = to_corel(p.x + p.w / 2, p.y + p.h / 2)
+                cx, cy = to_corel(p.cx, p.cy)
                 shp.SetSizeEx(cx, cy, p.w, p.h)
+                if p.angle:
+                    # Rotate xoay quanh tâm hình, độ dương = ngược kim đồng hồ (như Pillow)
+                    shp.Rotate(p.angle)
             # đường gióng (không in) tại vị trí cắt đôi tờ
             x0, y = to_corel(0, lay.cut_y)
             x1, _ = to_corel(PAGE_W, lay.cut_y)
