@@ -89,6 +89,7 @@ class Corel:
             m.Outline.Color.CMYKAssign(0, 0, 0, 100)
         if lay.cuts:
             trace = doc.ActivePage.CreateLayer(cut.trace_layer)
+            trace.Printable = False  # như layer cắt AidCut: không in viền đỏ lên sticker
             for i in sorted(lay.cuts):
                 t = self._polyline(doc, trace, lay.cuts[i], True, to_corel)
                 t.Name = cut.trace_name
@@ -98,8 +99,10 @@ class Corel:
 
     def _place(self, doc, sticker_pngs: list[Path], lay: Layout) -> None:
         self.app.Optimization = True
+        origin = None
         try:
             doc.Unit = C.cdrMillimeter
+            origin = doc.DrawingOriginX, doc.DrawingOriginY
             page = doc.ActivePage
             page.SetSize(PAGE_W, PAGE_H)
             # Đổi toạ độ (mm, gốc trên-trái, y xuống) sang toạ độ trang của Corel,
@@ -126,8 +129,15 @@ class Corel:
             # đường gióng (không in) tại vị trí cắt đôi tờ
             x0, y = to_corel(0, lay.cut_y)
             x1, _ = to_corel(PAGE_W, lay.cut_y)
-            doc.MasterPage.GuidesLayer.CreateGuide(x0, y, x1, y)
+            # Corel có thể tạo guide trên master dù gọi Page.GuidesLayer.
+            # Chuyển sang layer guide riêng của trang để không ảnh hưởng trang khác.
+            guide = page.GuidesLayer.CreateGuide(x0, y, x1, y)
+            local_guides = next(layer for layer in page.Layers
+                                if layer.IsGuidesLayer and not layer.Master)
+            guide.MoveToLayer(local_guides)
             doc.ClearSelection()
         finally:
+            if origin is not None:
+                doc.DrawingOriginX, doc.DrawingOriginY = origin
             self.app.Optimization = False
             self.app.Refresh()

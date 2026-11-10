@@ -17,7 +17,7 @@ Yêu cầu bố cục (đã chốt với user):
 - Vùng đặt hình né 4 dấu L (registration mark) của máy cắt; số đo lấy từ file mẫu
   `ST16.cdr` (do user dàn tay bằng plugin AidCut).
 - Script **tự tạo contour cắt và 4 dấu L** giống hệt AidCut trong file mẫu (tắt bằng `--no-cut`):
-  - layer `TraceLayer` (trên cùng): mỗi sticker một đường `TraceLine` kín, gấp khúc,
+  - layer `TraceLayer` (trên cùng, không in): mỗi sticker một đường `TraceLine` kín, gấp khúc,
     ngoài mép hình 0,4 mm (`--cut-offset`), nét 0,5 pt đỏ RGB(233,78,54), không tô;
   - layer ảnh (`Layer 1`): một đối tượng `LMarkLine1` gồm 4 dấu L dài 20 mm, nét 1 mm,
     K100; góc trong tại x 9,93 / 199,93 mm, y 30,01 / 277,01 mm.
@@ -56,7 +56,7 @@ cho contour), chạy lại `pip install -r requirements.txt`.
 |---|---|
 | Tách sticker, xếp lồng, preview | Chạy tốt trên 2 ảnh mẫu (Linux, 10 test pass). |
 | Dựng trang A4 trong Corel (import, kích thước, tâm, xoay, lưu CDR/PDF) | **Đã chạy thật** trên Corel 2020 (commit 1a1ec91), user báo OK. |
-| Contour `TraceLine` + 4 dấu L `LMarkLine1` trong Corel | **Chưa chạy trên Corel thật** — cần kiểm theo checklist dưới. |
+| Contour `TraceLine` + 4 dấu L `LMarkLine1` trong Corel | **Đã chạy thật** trên trang 2 ST264: 25 contour, 4 dấu L, xoay khớp ảnh; trang 1 giữ nguyên cả đối tượng và ảnh render. |
 | AidCut nhận contour/dấu L do script tạo để gửi máy cắt | **Chưa biết** — chỉ mô phỏng tên, layer, hình dạng từ file mẫu. |
 
 Checklist lần chạy đầu có contour:
@@ -122,4 +122,9 @@ Checklist lần chạy đầu có contour:
   `SetPositionEx(cdrCenter, cx, cy)` để đặt tâm, rồi `Rotate(angle)`
   (độ dương = ngược kim đồng hồ, giống Pillow). Nếu trên Corel thấy hình xoay ngược
   chiều so với preview thì đổi dấu góc ở `corel_build.py`.
+- Tài liệu nhiều trang: `Page.SetSize` có thể tự đổi `DrawingOriginX/Y`, nên phải
+  khôi phục gốc thước sau khi dựng. `Page.GuidesLayer.CreateGuide` vẫn có thể tạo
+  guide trên master; dùng `MoveToLayer` chuyển về layer guide local của trang đang sửa.
+  Khi sửa một trang, lưu bản sao, so sánh đối tượng và ảnh render của trang cần giữ
+  trước/sau khi lưu, không chỉ so sánh hình nhìn thấy trên trang được sửa.
 - Repo của user `quynhf21/corel_mcp`: xong việc thì commit và push thẳng `main`.

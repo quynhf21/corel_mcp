@@ -151,6 +151,35 @@ def test_build_page_closes_doc_when_import_fails(tmp_path: Path):
     sys.modules.pop("corel_build", None)
 
 
+def test_place_preserves_origin_and_keeps_guide_on_current_page():
+    from layout import Layout
+
+    with mock.patch.dict(sys.modules, _fake_win32com()):
+        sys.modules.pop("corel_build", None)
+        import corel_build
+
+        corel = corel_build.Corel()
+        doc = mock.MagicMock()
+        doc.DrawingOriginX, doc.DrawingOriginY = 12.5, -8.0
+        page = doc.ActivePage
+        page.LeftX, page.RightX = 0.0, 210.0
+        page.TopY, page.BottomY = 297.0, 0.0
+        local_guides = mock.MagicMock(IsGuidesLayer=True, Master=False)
+        page.Layers = [local_guides]
+
+        def reset_origin(*_):
+            # Corel SetSize thay gốc thước kể cả khi giữ nguyên khổ A4.
+            doc.DrawingOriginX, doc.DrawingOriginY = 0.0, 0.0
+
+        page.SetSize.side_effect = reset_origin
+        corel._place(doc, [], Layout([], ((), ()), 153.5, 0.0))
+
+        assert (doc.DrawingOriginX, doc.DrawingOriginY) == (12.5, -8.0)
+        page.GuidesLayer.CreateGuide.return_value.MoveToLayer.assert_called_once_with(local_guides)
+        doc.MasterPage.GuidesLayer.CreateGuide.assert_not_called()
+    sys.modules.pop("corel_build", None)
+
+
 def _edge_distance(poly, mask, mm_per_px):
     """Khoảng cách (mm) từ các điểm contour tới mép vùng `mask` (dương = ở ngoài)."""
     import numpy as np
@@ -241,6 +270,7 @@ def test_draw_cuts_mimics_aidcut(tmp_path: Path):
         corel._draw_cuts(doc, image_layer, lay, lambda x, y: (x, y), CutConfig())
 
         doc.ActivePage.CreateLayer.assert_called_once_with("TraceLayer")
+        assert trace.Printable is False
         assert image_layer.CreateCurve.call_count == 1
         assert trace.CreateCurve.call_count == 2
         assert image_layer.CreateCurve.return_value.Name == "LMarkLine1"
