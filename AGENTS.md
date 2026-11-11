@@ -26,6 +26,11 @@ Yêu cầu bố cục (đã chốt với user):
 - Plugin AidCut **không tự kết nối máy cắt** khi Corel do script mở: mở Corel bằng tay
   trước rồi mới chạy batch; không kill Corel.
 
+## Tài liệu
+- `docs/nesting_math.md`: mô hình toán của bài xếp lồng, vì sao NP-hard, thuật toán hiện tại.
+- `docs/task_quality_max.md`: **việc tiếp theo** — chế độ `--quality max` (tối thiểu hoá
+  phần chồng, GLS). Làm theo đúng ràng buộc, test và bảng benchmark trong đó.
+
 ## Mã nguồn: `sticker_a4/`
 | File | Việc |
 |---|---|
