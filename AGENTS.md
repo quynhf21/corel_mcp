@@ -9,7 +9,7 @@ trên 1 layer trong file .cdr) sang **1 trang A4** để in và cắt trên máy
 Yêu cầu bố cục (đã chốt với user):
 - Cả 25 hình nằm trên 1 trang A4 (210×297 mm), máy in in tràn viền.
 - Trang chia **2 khối trên/dưới**; tờ được cắt đôi ở giữa để mỗi nửa bỏ vừa túi
-  12 × 17,1 cm. Mỗi khối 166 × 117,8 mm (x 22–188, y 34–273), cách nhau 3,5 mm.
+  12 × 17,1 cm. Mỗi khối 166 × 116 mm (x 22–188, y 35,75–271,25), cách nhau 3,5 mm.
 - **Xếp lồng theo đúng đường viền hình** (không cần ô vuông, không cần thẳng hàng),
   xoay góc tuỳ ý; mép hai hình cách nhau ≥ 1,2 mm. Càng lấp đầy càng tốt.
 - Được thu/phóng; cạnh dài mỗi hình ≥ 30 mm; các hình được chênh nhau khoảng ±10%.
@@ -98,8 +98,9 @@ Checklist lần chạy đầu có contour:
   Khoảng cách đo được hiện 1,20–1,36 mm (dư ≤ 0,16 mm), không còn gì để ép ở đây.
 - Kích thước: hình được nhỏ/to ±10% quanh cỡ chung để lấp hốc, nên hình to nhất có thể
   hơn hình nhỏ nhất ~25%. Muốn đều hơn: thu hẹp `shrink`/`grow` trong `NestConfig`.
-- Vùng đặt hình 22–188 × 34–273 mm: đo từ file mẫu, rộng 166 mm để mỗi nửa tờ vẫn
-  vừa túi 171 mm; cần user xác nhận không đè dấu L nếu đổi thông số AidCut.
+- Vùng đặt hình 22–188 × 35,75–271,25 mm: giữ tâm vùng mẫu, thu chiều cao mỗi khối
+  còn 116 mm theo yêu cầu user; rộng 166 mm để mỗi nửa tờ vẫn vừa túi 171 mm.
+  Cần user xác nhận không đè dấu L nếu đổi thông số AidCut.
 
 ## Quy tắc khi sửa / chạy
 - Không bao giờ ghi đè hay sửa file gốc; đầu ra luôn ở thư mục khác (`batch.py` đã chặn).

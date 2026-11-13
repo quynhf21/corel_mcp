@@ -16,12 +16,12 @@ PAGE_W, PAGE_H = 210.0, 297.0
 
 @dataclass
 class Config:
-    # Vùng đặt sticker: dọc đo từ file mẫu ST16.cdr (né 4 dấu L của máy cắt); ngang
-    # rộng 166 mm để mỗi nửa tờ vẫn bỏ vừa túi 12 x 17,1 cm.
+    # Hai khối 166 x 116 mm, cách nhau 3,5 mm; giữ tâm vùng mẫu ST16.cdr
+    # và né 4 dấu L của máy cắt, vừa túi 12 x 17,1 cm.
     left: float = 22.0
     right: float = 188.0
-    top: float = 34.0
-    bottom: float = 273.0
+    top: float = 35.75
+    bottom: float = 271.25
     cut_gap: float = 3.5      # khoảng trống giữa 2 khối, đường cắt đôi tờ nằm giữa
     gap: float = 1.5          # khoảng cách giữa các ô sticker
     min_size: float = 30.0    # cạnh dài của sticker phải >= giá trị này (mm)
