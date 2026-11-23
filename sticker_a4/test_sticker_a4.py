@@ -70,6 +70,24 @@ def test_split_masks_out_neighbour_inside_bbox(tmp_path):
         assert len(colors) == 1, colors
 
 
+def test_split_drops_specks_keeps_small_pieces(tmp_path):
+    """Chấm/vệt thừa (< 1% diện tích) bị bỏ; mảnh nhỏ thật (tim, giọt nước ~5%) vẫn gộp."""
+    import numpy as np
+    from PIL import Image
+
+    from split_stickers import split_sheet
+
+    a = np.zeros((200, 300, 4), np.uint8)
+    a[20:120, 20:120] = 255        # hình 1: 100x100
+    a[20:120, 160:260] = 255       # hình 2: 100x100
+    a[140:162, 20:42] = 255        # mảnh thật ~5% cạnh hình 1 -> gộp
+    a[150:153, 250:262] = 255      # vệt thừa 3x12 (~0,4%) -> bỏ
+    Image.fromarray(a, "RGBA").save(tmp_path / "sheet.png")
+    st = split_sheet(tmp_path / "sheet.png", expected=2)
+    assert st[0].image.size == (100, 142)  # hình 1 + mảnh thật
+    assert st[1].image.size == (100, 100)  # hình 2, không dính vệt
+
+
 def test_nest_layout_real_sheet():
     """Xếp lồng tấm mẫu thật (cấu hình rút gọn cho nhanh): đủ 25 hình, trong khối,
     khoảng cách mép hình thật >= gap."""

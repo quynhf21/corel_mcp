@@ -16,6 +16,8 @@ from scipy import ndimage
 ALPHA_MIN = 16        # alpha <= ngưỡng này coi là nền
 BRIDGE_PX = 3         # nối các mảnh cách nhau <= vài px (viền trắng bị đứt)
 MIN_AREA_RATIO = 0.15 # mảnh nhỏ hơn 15% diện tích trung vị -> gộp vào sticker gần nhất
+DROP_AREA_RATIO = 0.01  # mảnh < 1% trung vị là vệt/chấm thừa của ảnh gốc -> bỏ hẳn
+                        # (nếu giữ, mỗi vệt thành một miếng cắt li ti)
 
 
 @dataclass
@@ -34,7 +36,7 @@ def _merge_small(boxes: list[list], areas: list[int]) -> list[list]:
     big = [i for i, a in enumerate(areas) if a >= MIN_AREA_RATIO * med]
     merged = {i: list(boxes[i]) for i in big}
     for i, a in enumerate(areas):
-        if i in merged:
+        if i in merged or a < DROP_AREA_RATIO * med:
             continue
         x0, y0, x1, y1 = boxes[i][:4]
 
