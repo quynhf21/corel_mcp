@@ -49,6 +49,27 @@ def test_grid_aspect_ratio_preserved():
         assert p.angle in (0.0, -90.0)
 
 
+def test_split_masks_out_neighbour_inside_bbox(tmp_path):
+    """Hai hình chữ L lồng nhau (dàn tay, hộp bao chồng lên nhau): ảnh tách của mỗi hình
+    không được dính điểm ảnh của hình kia."""
+    import numpy as np
+    from PIL import Image
+
+    from split_stickers import split_sheet
+
+    a = np.zeros((200, 200, 4), np.uint8)
+    a[10:150, 10:40] = (255, 0, 0, 255)    # L đỏ: cột trái + đáy
+    a[120:150, 10:150] = (255, 0, 0, 255)
+    a[50:190, 160:190] = (0, 0, 255, 255)  # L xanh: cột phải + đỉnh, hộp bao chồng L đỏ
+    a[50:80, 60:190] = (0, 0, 255, 255)
+    Image.fromarray(a, "RGBA").save(tmp_path / "sheet.png")
+    st = split_sheet(tmp_path / "sheet.png", expected=2)
+    for s in st:
+        px = np.asarray(s.image)
+        colors = {tuple(c[:3]) for c in px[px[:, :, 3] > 0]}
+        assert len(colors) == 1, colors
+
+
 def test_nest_layout_real_sheet():
     """Xếp lồng tấm mẫu thật (cấu hình rút gọn cho nhanh): đủ 25 hình, trong khối,
     khoảng cách mép hình thật >= gap."""

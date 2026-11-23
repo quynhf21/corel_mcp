@@ -25,25 +25,29 @@ class Sticker:
     image: Image.Image  # ảnh RGBA đã cắt sát
 
 
-def _merge_small(boxes: list[list[int]], areas: list[int]) -> list[list[int]]:
-    """Gộp các mảnh nhỏ vào hộp lớn gần nhất (theo khoảng cách giữa hai hộp)."""
+def _merge_small(boxes: list[list], areas: list[int]) -> list[list]:
+    """Gộp các mảnh nhỏ vào hộp lớn gần nhất (theo khoảng cách giữa hai hộp).
+
+    Mỗi hộp là [x0, y0, x1, y1, {nhãn}]; hộp gộp mang theo nhãn của mọi mảnh trong nó.
+    """
     med = float(np.median(areas))
     big = [i for i, a in enumerate(areas) if a >= MIN_AREA_RATIO * med]
     merged = {i: list(boxes[i]) for i in big}
     for i, a in enumerate(areas):
         if i in merged:
             continue
-        x0, y0, x1, y1 = boxes[i]
+        x0, y0, x1, y1 = boxes[i][:4]
 
         def gap(j: int) -> float:
-            bx0, by0, bx1, by1 = boxes[j]
+            bx0, by0, bx1, by1 = boxes[j][:4]
             dx = max(bx0 - x1, x0 - bx1, 0)
             dy = max(by0 - y1, y0 - by1, 0)
             return float(np.hypot(dx, dy))
 
         j = min(big, key=gap)
         m = merged[j]
-        merged[j] = [min(m[0], x0), min(m[1], y0), max(m[2], x1), max(m[3], y1)]
+        merged[j] = [min(m[0], x0), min(m[1], y0), max(m[2], x1), max(m[3], y1),
+                     m[4] | boxes[i][4]]
     return list(merged.values())
 
 
@@ -68,13 +72,19 @@ def split_sheet(path: Path, expected: int | None = 25) -> list[Sticker]:
     labels, n = ndimage.label(solid)
     slices = ndimage.find_objects(labels)
     areas = ndimage.sum(alpha, labels, index=range(1, n + 1))
-    boxes = [[s[1].start, s[0].start, s[1].stop, s[0].stop] for s in slices]
+    boxes = [[s[1].start, s[0].start, s[1].stop, s[0].stop, {k + 1}]
+             for k, s in enumerate(slices)]
     boxes = _reading_order(_merge_small(boxes, list(areas)))
     if expected is not None and len(boxes) != expected:
         raise ValueError(f"{path.name}: tách được {len(boxes)} sticker, cần {expected}")
+    rgba = np.asarray(img)
     stickers = []
-    for i, (x0, y0, x1, y1) in enumerate(boxes):
-        crop = img.crop((x0, y0, x1, y1))
+    for i, (x0, y0, x1, y1, own) in enumerate(boxes):
+        # Hộp bao có thể lấn sang hình bên cạnh (hình dàn tay, xoay chéo):
+        # chỉ giữ điểm ảnh thuộc các mảnh của chính sticker này.
+        part = rgba[y0:y1, x0:x1].copy()
+        part[~np.isin(labels[y0:y1, x0:x1], list(own)), 3] = 0
+        crop = Image.fromarray(part, "RGBA")
         # bỏ phần trong suốt thừa do dilation
         crop = crop.crop(crop.getchannel("A").point(lambda a: 255 if a > ALPHA_MIN else 0).getbbox())
         stickers.append(Sticker(i, (x0, y0, x1, y1), crop))
