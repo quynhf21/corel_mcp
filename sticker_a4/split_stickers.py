@@ -32,8 +32,11 @@ def _merge_small(boxes: list[list], areas: list[int]) -> list[list]:
 
     Mỗi hộp là [x0, y0, x1, y1, {nhãn}]; hộp gộp mang theo nhãn của mọi mảnh trong nó.
     """
-    med = float(np.median(areas))
-    big = [i for i, a in enumerate(areas) if a >= MIN_AREA_RATIO * med]
+    # Trung vị chỉ tính trên các mảnh đáng kể (>= 5% mảnh lớn nhất): tấm có nhiều chấm/râu
+    # rời thì trung vị mọi mảnh rơi xuống cỡ chấm, hình nào cũng thành "lớn" (tách 38 thay 25).
+    top = max(areas)
+    med = float(np.median([a for a in areas if a >= 0.05 * top]))
+    big =[i for i, a in enumerate(areas) if a >= MIN_AREA_RATIO * med]
     merged = {i: list(boxes[i]) for i in big}
     for i, a in enumerate(areas):
         if i in merged or a < DROP_AREA_RATIO * med:

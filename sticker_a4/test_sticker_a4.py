@@ -88,6 +88,23 @@ def test_split_drops_specks_keeps_small_pieces(tmp_path):
     assert st[1].image.size == (100, 100)  # hình 2, không dính vệt
 
 
+def test_split_many_specks_do_not_skew_median(tmp_path):
+    """Chấm rời nhiều hơn số hình (râu bướm ST17) không làm mọi chấm thành sticker riêng."""
+    import numpy as np
+    from PIL import Image
+
+    from split_stickers import split_sheet
+
+    a = np.zeros((200, 300, 4), np.uint8)
+    a[20:120, 20:120] = 255
+    a[20:120, 160:260] = 255
+    for k in range(5):  # 5 chấm 2x2 rải rác, cách xa nhau
+        a[150:152, 20 + 50 * k:22 + 50 * k] = 255
+    Image.fromarray(a, "RGBA").save(tmp_path / "sheet.png")
+    st = split_sheet(tmp_path / "sheet.png", expected=2)
+    assert [s.image.size for s in st] == [(100, 100), (100, 100)]
+
+
 def test_nest_layout_real_sheet():
     """Xếp lồng tấm mẫu thật (cấu hình rút gọn cho nhanh): đủ 25 hình, trong khối,
     khoảng cách mép hình thật >= gap."""
